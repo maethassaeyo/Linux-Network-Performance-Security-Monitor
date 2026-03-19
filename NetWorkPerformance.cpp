@@ -17,9 +17,7 @@ struct SharedData{
     double down_speed = 0;
     double up_speed = 0;
     vector<vector<string>> ip_scan;
-    //string last_scr_ip = "-";
-    //string last_dst_ip = "-";
-    //double pk_len_ip = 0;
+    double latency_ms = 0;
     mutex mtx;
 };
 
@@ -130,7 +128,6 @@ void Sniffing_Ip(){
         
         // 3. เริ่มวนลูปดักจับ (ดักจับ 10 packets แล้วเลิก)
         pcap_loop(handle, 10, packet_handler, NULL);
-        sleep(3);
         
     }
     pcap_close(handle);
@@ -138,10 +135,34 @@ void Sniffing_Ip(){
 
 }
 
+void ping(){
+    string command = "ping -c 1 8.8.8.8 | grep -oP 'time=\\K[^ ]+'";
+    while(true){
+        FILE* pipe = popen(command.c_str(), "r");
+        if (pipe){
+            char buffer[128];
+            if(fgets(buffer,sizeof(buffer),pipe) != NULL){
+                try{
+                    double ms = stod(buffer);;
+                    lock_guard<mutex> lock(shared_info.mtx);
+                    shared_info.latency_ms  = ms;;
+                }catch(...){
+                    cerr << "Not Enternet Connec" ;
+                }
+            }
+            pclose(pipe);
+        }
+        sleep(2);
+    }
+
+
+
+}
+
 int main() {
     thread t1(calculate_speed_Net);
     thread t2(Sniffing_Ip);
-
+    thread t3(ping);
     while(true){
         cout << "\033[2J\033[1;1H";
         {
@@ -150,22 +171,21 @@ int main() {
             cout << fixed << setprecision(2);
             cout << "DOWNLOAD: " << shared_info.down_speed << " Mbps" << endl;
             cout << "UPLOAD:   " << shared_info.up_speed << " Mbps" << endl;
+            cout << "Latency:  " << shared_info.latency_ms << " ms" << endl;
             cout << "----------------------------------------" << endl;
-            for(vector<string> i : shared_info.ip_scan){
-                cout << "LATEST PACKET:" << endl;
-                cout << "SOURCE: " << i[0] << endl;
-                cout << "DEST  : " << i[1] << endl;
-                cout << "Size  :"  << i[2] << endl;
+            cout << left << setw(18) << "SOURCE" << setw(18) << "DEST" << "SIZE" << endl;
+            for(const auto& pkt : shared_info.ip_scan) {
+                cout << left << setw(18) << pkt[0] << setw(18) << pkt[1] << pkt[2] << endl;
             }
-            shared_info.ip_scan.clear();
+            shared_info.ip_scan.clear(); //
             cout << "========================================" << endl;
         }
-        sleep(3);
+        sleep(1);
     }
 
     t1.join();
     t2.join();
-
+    t3.join();
     return 0;
 }
 
