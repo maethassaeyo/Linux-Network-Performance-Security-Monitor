@@ -5,14 +5,25 @@
 #include <unistd.h>
 #include <iomanip>
 #include <thread>
-#include <chrono>
+#include <mutex>
+#include <string>
+#include <vector>
 #include <pcap.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
-
-
 using namespace std;
 
+struct SharedData{
+    double down_speed = 0;
+    double up_speed = 0;
+    vector<vector<string>> ip_scan;
+    //string last_scr_ip = "-";
+    //string last_dst_ip = "-";
+    //double pk_len_ip = 0;
+    mutex mtx;
+};
+
+SharedData shared_info;
 double speed_Mbps(int current_recv,int prev_recv){
     double speed = 0;
     
@@ -30,9 +41,14 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
     src_addr.s_addr = ip_header->saddr;
     dst_addr.s_addr = ip_header->daddr;
 
-    cout << "From: " << inet_ntoa(src_addr) 
+    lock_guard<mutex> lock(shared_info.mtx);
+    //shared_info.last_scr_ip = inet_ntoa(src_addr);
+    //shared_info.last_dst_ip = inet_ntoa(dst_addr);
+    //shared_info.pk_len_ip = pkthdr->len;
+    shared_info.ip_scan.push_back({inet_ntoa(src_addr) ,inet_ntoa(dst_addr),to_string(pkthdr->len)});
+    /*cout << "From: " << inet_ntoa(src_addr) 
          << " -> To: " << inet_ntoa(dst_addr) 
-         << " | Size: " << pkthdr->len << " bytes" << endl;
+         << " | Size: " << pkthdr->len << " bytes" << endl;**/
 }
 
 void calculate_speed_Net(){
@@ -74,20 +90,17 @@ void calculate_speed_Net(){
             }  
             // ปิดไฟล์
             file.close();
-            double down_speed_Mbps = 0;
-            double up_speed_Mbps = 0;
             
             if(!first_run){
-        
-                down_speed_Mbps = speed_Mbps(current_recv_down,prev_recv_down);
-                up_speed_Mbps = speed_Mbps(current_recv_up,prev_recv_up);
+                lock_guard<mutex> lock(shared_info.mtx); 
+                shared_info.down_speed = speed_Mbps(current_recv_down,prev_recv_down);
+                shared_info.up_speed = speed_Mbps(current_recv_up,prev_recv_up);
 
             }
-            cout << "Downlond Speed : " << down_speed_Mbps << " Mbps\nUplode Speed : " << up_speed_Mbps << " Mbps" << endl;
+            //cout << "Downlond Speed : " << down_speed_Mbps << " Mbps\nUplode Speed : " << up_speed_Mbps << " Mbps" << endl;
             prev_recv_down = current_recv_down;
             prev_recv_up = current_recv_up;
             first_run = false;
-
             sleep(1);
         } else {
             cerr << "Unable to open file";
@@ -99,7 +112,7 @@ void calculate_speed_Net(){
 
 void Sniffing_Ip(){
 
-char errbuf[PCAP_ERRBUF_SIZE];
+    char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t *handle;
 
     // 1. เลือก Interface (ในเครื่องคุณอาจเป็น wlp... หรือ eth0)
@@ -108,16 +121,16 @@ char errbuf[PCAP_ERRBUF_SIZE];
         // 2. เปิดการดักจับ (Open live capture)
         handle = pcap_open_live(device.c_str(), BUFSIZ, 1, 1000, errbuf);
     
-        if (handle == NULL) {
+        if(handle == NULL) {
             cerr << "Error: " << errbuf << endl;
         }
 
         cout << "Sniffing on " << device << "..." << endl;
-
+        
         // 3. เริ่มวนลูปดักจับ (ดักจับ 10 packets แล้วเลิก)
-        pcap_loop(handle, 100, packet_handler, NULL);
+        pcap_loop(handle, 10, packet_handler, NULL);
         sleep(3);
-        cout << "\033[2J\033[1;1H";
+        
     }
     pcap_close(handle);
 
@@ -127,8 +140,31 @@ char errbuf[PCAP_ERRBUF_SIZE];
 int main() {
     thread t1(calculate_speed_Net);
     thread t2(Sniffing_Ip);
+
+    while(true){
+        cout << "\033[2J\033[1;1H";
+        {
+            lock_guard<mutex> lock(shared_info.mtx);
+            cout << "=== KMITL PORTFOLIO: NETWORK MONITOR ===" << endl;
+            cout << fixed << setprecision(2);
+            cout << "DOWNLOAD: " << shared_info.down_speed << " Mbps" << endl;
+            cout << "UPLOAD:   " << shared_info.up_speed << " Mbps" << endl;
+            cout << "----------------------------------------" << endl;
+            for(vector<string> i : shared_info.ip_scan){
+                cout << "LATEST PACKET:" << endl;
+                cout << "SOURCE: " << i[0] << endl;
+                cout << "DEST  : " << i[1] << endl;
+                cout << "Size  :"  << i[2] << endl;
+            }
+            shared_info.ip_scan = {};
+            cout << "========================================" << endl;
+        }
+        sleep(3);
+    }
+
     t1.join();
     t2.join();
+
     return 0;
 }
 
