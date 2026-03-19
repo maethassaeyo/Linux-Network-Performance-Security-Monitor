@@ -117,15 +117,16 @@ void Sniffing_Ip(){
 
     // 1. เลือก Interface (ในเครื่องคุณอาจเป็น wlp... หรือ eth0)
     string device = "wlp0s20f3"; // แก้ชื่อให้ตรงกับเครื่องคุณ
+    
+    handle = pcap_open_live(device.c_str(), BUFSIZ, 1, 1000, errbuf);
     while(true){
         // 2. เปิดการดักจับ (Open live capture)
-        handle = pcap_open_live(device.c_str(), BUFSIZ, 1, 1000, errbuf);
     
         if(handle == NULL) {
             cerr << "Error: " << errbuf << endl;
         }
 
-        cout << "Sniffing on " << device << "..." << endl;
+        //cout << "Sniffing on " << device << "..." << endl;
         
         // 3. เริ่มวนลูปดักจับ (ดักจับ 10 packets แล้วเลิก)
         pcap_loop(handle, 10, packet_handler, NULL);
@@ -156,7 +157,7 @@ int main() {
                 cout << "DEST  : " << i[1] << endl;
                 cout << "Size  :"  << i[2] << endl;
             }
-            shared_info.ip_scan = {};
+            shared_info.ip_scan.clear();
             cout << "========================================" << endl;
         }
         sleep(3);
