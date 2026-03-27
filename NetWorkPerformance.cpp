@@ -11,6 +11,8 @@
 #include <pcap.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
+#include <maxminddb.h>
+#include <map>
 using namespace std;
 
 struct SharedData{
@@ -18,6 +20,7 @@ struct SharedData{
     double up_speed = 0;
     vector<vector<string>> ip_scan;
     double latency_ms = 0;
+
     mutex mtx;
 };
 
@@ -30,20 +33,44 @@ double speed_Mbps(int current_recv,int prev_recv){
     return speed;
 }
 
+map<string,string> geo_cache;
+
+string get_country(string ip){
+    if(geo_cache.count(ip)) return geo_cache[ip];
+
+    int gai_error, mmdb_error;
+    MMDB_s mmdb;
+    mmdb_error = MMDB_open("GeoLite2-Country.mmdb", MMDB_MODE_MMAP, &mmdb);
+    
+    MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gai_error, &mmdb_error);
+    if (result.found_entry) {
+        MMDB_entry_data_s entry_data;
+        MMDB_get_value(&result.entry, &entry_data, "country", "names", "en", NULL);
+        if (entry_data.has_data) {
+            geo_cache[ip] = string(entry_data.utf8_string,entry_data.data_size);
+            return string(entry_data.utf8_string, entry_data.data_size);
+        }
+    }
+    geo_cache[ip] = "Unknown";
+    return "Unknown";
+
+}
+
+
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char *packet) {
     // โครงสร้าง: Ethernet Header (14 bytes) -> IP Header
     struct iphdr *ip_header = (struct iphdr *)(packet + 14);
-
+    
     // แปลง IP จากตัวเลขเป็น String ที่คนอ่านออก
     struct in_addr src_addr, dst_addr;
     src_addr.s_addr = ip_header->saddr;
     dst_addr.s_addr = ip_header->daddr;
-
+    
     lock_guard<mutex> lock(shared_info.mtx);
     //shared_info.last_scr_ip = inet_ntoa(src_addr);
     //shared_info.last_dst_ip = inet_ntoa(dst_addr);
     //shared_info.pk_len_ip = pkthdr->len;
-    shared_info.ip_scan.push_back({inet_ntoa(src_addr) ,inet_ntoa(dst_addr),to_string(pkthdr->len)});
+    shared_info.ip_scan.push_back({inet_ntoa(src_addr) ,inet_ntoa(dst_addr),get_country(inet_ntoa(dst_addr)),to_string(pkthdr->len)});
     /*cout << "From: " << inet_ntoa(src_addr) 
          << " -> To: " << inet_ntoa(dst_addr) 
          << " | Size: " << pkthdr->len << " bytes" << endl;**/
@@ -173,9 +200,12 @@ int main() {
             cout << "UPLOAD:   " << shared_info.up_speed << " Mbps" << endl;
             cout << "Latency:  " << shared_info.latency_ms << " ms" << endl;
             cout << "----------------------------------------" << endl;
-            cout << left << setw(18) << "SOURCE" << setw(18) << "DEST" << "SIZE" << endl;
+            cout << left << setw(18) << "SOURCE" 
+     << setw(18) << "DEST" 
+     << setw(15) << "LOCATION" 
+     << "SIZE" << endl;
             for(const auto& pkt : shared_info.ip_scan) {
-                cout << left << setw(18) << pkt[0] << setw(18) << pkt[1] << pkt[2] << endl;
+                cout << left << setw(18) << pkt[0] << setw(18) << pkt[1] << setw(15) << pkt[2] << pkt[3] << endl;
             }
             shared_info.ip_scan.clear(); //
             cout << "========================================" << endl;
@@ -188,4 +218,3 @@ int main() {
     t3.join();
     return 0;
 }
-
