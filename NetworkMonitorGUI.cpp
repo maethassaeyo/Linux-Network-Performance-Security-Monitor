@@ -35,7 +35,7 @@ struct SharedData {
         string src;
         string dst;
         string location;
-        string size;
+        int size;
         string protocol;
         bool is_malicious;
     };
@@ -97,11 +97,11 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
         inet_ntoa(src_addr),
         dst_str,
         get_country(dst_str),
-        to_string(pkthdr->len),
+        (int)pkthdr->len,
         proto,
         malicious
     });
-    if (shared_info.packets.size() > 50) shared_info.packets.erase(shared_info.packets.begin());
+    if (shared_info.packets.size() > 100) shared_info.packets.erase(shared_info.packets.begin());
 }
 
 // --- Worker Threads ---
@@ -249,9 +249,17 @@ private slots:
                                 .arg(getP("ICMP"), 0, 'f', 1));
         }
 
+        // Sort and Show TOP 5
+        vector<SharedData::PacketInfo> sortedPackets = shared_info.packets;
+        sort(sortedPackets.begin(), sortedPackets.end(), [](const SharedData::PacketInfo& a, const SharedData::PacketInfo& b) {
+            return a.size > b.size;
+        });
+
         // Update Table
         packetTable->setRowCount(0);
-        for (const auto& p : shared_info.packets) {
+        int displayCount = qMin((int)sortedPackets.size(), 5);
+        for (int i = 0; i < displayCount; ++i) {
+            const auto& p = sortedPackets[i];
             int row = packetTable->rowCount();
             packetTable->insertRow(row);
             
@@ -259,7 +267,7 @@ private slots:
             QTableWidgetItem *srcItem = new QTableWidgetItem(p.src.c_str());
             QTableWidgetItem *dstItem = new QTableWidgetItem(p.dst.c_str());
             QTableWidgetItem *locItem = new QTableWidgetItem(p.location.c_str());
-            QTableWidgetItem *sizeItem = new QTableWidgetItem(p.size.c_str());
+            QTableWidgetItem *sizeItem = new QTableWidgetItem(QString::number(p.size));
 
             if (p.is_malicious) {
                 QColor dangerColor(255, 200, 200);
@@ -275,7 +283,6 @@ private slots:
             packetTable->setItem(row, 3, locItem);
             packetTable->setItem(row, 4, sizeItem);
         }
-        packetTable->scrollToBottom();
     }
 
     void startWorkers() {
