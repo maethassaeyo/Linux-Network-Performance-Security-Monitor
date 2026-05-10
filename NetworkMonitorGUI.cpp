@@ -8,6 +8,10 @@
 #include <QTimer>
 #include <QThread>
 #include <QProgressBar>
+#include <QPushButton>
+#include <QProcess>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <mutex>
 #include <vector>
 #include <string>
@@ -177,11 +181,9 @@ public slots:
     }
 
     void loadBlacklist() {
-        // Sample malicious IPs for demo (In real case, download from a URL)
         lock_guard<mutex> lock(shared_info.mtx);
-        shared_info.blacklist.insert("1.1.1.1"); // Dummy malicious example
+        shared_info.blacklist.insert("1.1.1.1");
         shared_info.blacklist.insert("8.8.4.4");
-        // You can add logic to read from a file here
     }
 };
 
@@ -190,13 +192,15 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
     QLabel *speedLabel;
     QLabel *statsLabel;
+    QLabel *speedTestResultLabel;
+    QPushButton *speedTestButton;
     QTableWidget *packetTable;
     QTimer *updateTimer;
 
 public:
     MainWindow() {
         setWindowTitle("KMITL All-in-one Network Dashboard");
-        resize(1000, 700);
+        resize(1000, 800);
 
         QWidget *central = new QWidget;
         QVBoxLayout *layout = new QVBoxLayout(central);
@@ -205,6 +209,18 @@ public:
         speedLabel = new QLabel("Initializing...");
         speedLabel->setStyleSheet("font-size: 20px; font-weight: bold; color: #ffffff; background-color: #34495e; padding: 15px; border-radius: 10px;");
         layout->addWidget(speedLabel);
+
+        // Speed Test Section
+        QHBoxLayout *speedTestLayout = new QHBoxLayout();
+        speedTestButton = new QPushButton("🚀 Run Speed Test");
+        speedTestButton->setStyleSheet("padding: 10px; font-weight: bold; background-color: #e67e22; color: white; border-radius: 5px;");
+        speedTestResultLabel = new QLabel("Last Test: N/A");
+        speedTestResultLabel->setStyleSheet("font-size: 14px; color: #7f8c8d; font-style: italic;");
+        speedTestLayout->addWidget(speedTestButton);
+        speedTestLayout->addWidget(speedTestResultLabel);
+        layout->addLayout(speedTestLayout);
+        
+        connect(speedTestButton, &QPushButton::clicked, this, &MainWindow::runSpeedTest);
 
         // Protocol Stats
         statsLabel = new QLabel("Protocols: TCP: 0% | UDP: 0% | DNS: 0% | ICMP: 0%");
@@ -228,16 +244,42 @@ public:
     }
 
 private slots:
+    void runSpeedTest() {
+        speedTestButton->setEnabled(false);
+        speedTestButton->setText("⌛ Testing...");
+        speedTestResultLabel->setText("Running official speed test (this may take 30s)...");
+
+        QProcess *process = new QProcess(this);
+        connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), 
+            [this, process](int exitCode, QProcess::ExitStatus exitStatus){
+                if (exitCode == 0) {
+                    QString output = process->readAllStandardOutput();
+                    QJsonDocument doc = QJsonDocument::fromJson(output.toUtf8());
+                    QJsonObject obj = doc.object();
+                    double down = obj["download"].toDouble() / 1000000.0;
+                    double up = obj["upload"].toDouble() / 1000000.0;
+                    double ping = obj["ping"].toDouble();
+                    
+                    speedTestResultLabel->setText(QString("✅ Result: DL: %1 Mbps | UL: %2 Mbps | Ping: %3 ms")
+                        .arg(down, 0, 'f', 2).arg(up, 0, 'f', 2).arg(ping, 0, 'f', 1));
+                } else {
+                    speedTestResultLabel->setText("❌ Speed test failed. Try again.");
+                }
+                speedTestButton->setEnabled(true);
+                speedTestButton->setText("🚀 Run Speed Test");
+                process->deleteLater();
+        });
+        process->start("speedtest-cli", QStringList() << "--json");
+    }
+
     void updateUI() {
         lock_guard<mutex> lock(shared_info.mtx);
         
-        // Update Dashboard
         speedLabel->setText(QString("⬇ %1 Mbps  |  ⬆ %2 Mbps  |  Latency: %3 ms")
                             .arg(shared_info.down_speed, 0, 'f', 2)
                             .arg(shared_info.up_speed, 0, 'f', 2)
                             .arg(shared_info.latency_ms, 0, 'f', 2));
 
-        // Update Protocol Stats
         long long total = 0;
         for (auto const& [p, count] : shared_info.proto_stats) total += count;
         if (total > 0) {
@@ -249,13 +291,11 @@ private slots:
                                 .arg(getP("ICMP"), 0, 'f', 1));
         }
 
-        // Sort and Show TOP 5
         vector<SharedData::PacketInfo> sortedPackets = shared_info.packets;
         sort(sortedPackets.begin(), sortedPackets.end(), [](const SharedData::PacketInfo& a, const SharedData::PacketInfo& b) {
             return a.size > b.size;
         });
 
-        // Update Table
         packetTable->setRowCount(0);
         int displayCount = qMin((int)sortedPackets.size(), 5);
         for (int i = 0; i < displayCount; ++i) {
@@ -289,7 +329,7 @@ private slots:
         QThread *t1 = new QThread, *t2 = new QThread, *t3 = new QThread;
         NetworkWorker *w1 = new NetworkWorker, *w2 = new NetworkWorker, *w3 = new NetworkWorker;
 
-        w1->loadBlacklist(); // Load initial data
+        w1->loadBlacklist();
 
         w1->moveToThread(t1);
         connect(t1, &QThread::started, w1, &NetworkWorker::calculateSpeed);
