@@ -7,6 +7,7 @@
 #include <QHeaderView>
 #include <QTimer>
 #include <QThread>
+#include <QProgressBar>
 #include <mutex>
 #include <vector>
 #include <string>
@@ -15,9 +16,12 @@
 #include <iomanip>
 #include <pcap.h>
 #include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <arpa/inet.h>
 #include <maxminddb.h>
 #include <map>
+#include <set>
 #include <unistd.h>
 
 using namespace std;
@@ -32,8 +36,12 @@ struct SharedData {
         string dst;
         string location;
         string size;
+        string protocol;
+        bool is_malicious;
     };
     vector<PacketInfo> packets;
+    map<string, int> proto_stats; // Protocol distribution
+    set<string> blacklist;
     mutex mtx;
 };
 
@@ -69,15 +77,31 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
     struct in_addr src_addr, dst_addr;
     src_addr.s_addr = ip_header->saddr;
     dst_addr.s_addr = ip_header->daddr;
+    string dst_str = inet_ntoa(dst_addr);
+
+    string proto = "OTHER";
+    if (ip_header->protocol == IPPROTO_TCP) proto = "TCP";
+    else if (ip_header->protocol == IPPROTO_UDP) {
+        struct udphdr *udp_header = (struct udphdr *)(packet + 14 + (ip_header->ihl * 4));
+        if (ntohs(udp_header->dest) == 53 || ntohs(udp_header->source) == 53) proto = "DNS";
+        else proto = "UDP";
+    }
+    else if (ip_header->protocol == IPPROTO_ICMP) proto = "ICMP";
 
     lock_guard<mutex> lock(shared_info.mtx);
+    shared_info.proto_stats[proto]++;
+    
+    bool malicious = shared_info.blacklist.count(dst_str);
+
     shared_info.packets.push_back({
         inet_ntoa(src_addr),
-        inet_ntoa(dst_addr),
-        get_country(inet_ntoa(dst_addr)),
-        to_string(pkthdr->len)
+        dst_str,
+        get_country(dst_str),
+        to_string(pkthdr->len),
+        proto,
+        malicious
     });
-    if (shared_info.packets.size() > 100) shared_info.packets.erase(shared_info.packets.begin());
+    if (shared_info.packets.size() > 50) shared_info.packets.erase(shared_info.packets.begin());
 }
 
 // --- Worker Threads ---
@@ -123,7 +147,7 @@ public slots:
         char errbuf[PCAP_ERRBUF_SIZE];
         pcap_if_t *alldevs;
         if (pcap_findalldevs(&alldevs, errbuf) == -1) return;
-        string device = alldevs->name; // Pick first device
+        string device = alldevs->name;
         pcap_freealldevs(alldevs);
 
         pcap_t *handle = pcap_open_live(device.c_str(), BUFSIZ, 1, 1000, errbuf);
@@ -151,30 +175,47 @@ public slots:
             QThread::msleep(2000);
         }
     }
+
+    void loadBlacklist() {
+        // Sample malicious IPs for demo (In real case, download from a URL)
+        lock_guard<mutex> lock(shared_info.mtx);
+        shared_info.blacklist.insert("1.1.1.1"); // Dummy malicious example
+        shared_info.blacklist.insert("8.8.4.4");
+        // You can add logic to read from a file here
+    }
 };
 
 // --- Main Window ---
 class MainWindow : public QMainWindow {
     Q_OBJECT
     QLabel *speedLabel;
+    QLabel *statsLabel;
     QTableWidget *packetTable;
     QTimer *updateTimer;
 
 public:
     MainWindow() {
-        setWindowTitle("KMITL Network Monitor (Qt)");
-        resize(800, 600);
+        setWindowTitle("KMITL All-in-one Network Dashboard");
+        resize(1000, 700);
 
         QWidget *central = new QWidget;
         QVBoxLayout *layout = new QVBoxLayout(central);
 
+        // Speed Dashboard
         speedLabel = new QLabel("Initializing...");
-        speedLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;");
+        speedLabel->setStyleSheet("font-size: 20px; font-weight: bold; color: #ffffff; background-color: #34495e; padding: 15px; border-radius: 10px;");
         layout->addWidget(speedLabel);
 
-        packetTable = new QTableWidget(0, 4);
-        packetTable->setHorizontalHeaderLabels({"Source", "Destination", "Location", "Size (B)"});
+        // Protocol Stats
+        statsLabel = new QLabel("Protocols: TCP: 0% | UDP: 0% | DNS: 0% | ICMP: 0%");
+        statsLabel->setStyleSheet("font-size: 14px; color: #2c3e50; font-weight: bold; margin-top: 5px;");
+        layout->addWidget(statsLabel);
+
+        // Packet Table
+        packetTable = new QTableWidget(0, 5);
+        packetTable->setHorizontalHeaderLabels({"Protocol", "Source IP", "Destination IP", "Location", "Size"});
         packetTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        packetTable->setAlternatingRowColors(true);
         layout->addWidget(packetTable);
 
         setCentralWidget(central);
@@ -189,19 +230,50 @@ public:
 private slots:
     void updateUI() {
         lock_guard<mutex> lock(shared_info.mtx);
-        speedLabel->setText(QString("Download: %1 Mbps | Upload: %2 Mbps | Latency: %3 ms")
+        
+        // Update Dashboard
+        speedLabel->setText(QString("⬇ %1 Mbps  |  ⬆ %2 Mbps  |  Latency: %3 ms")
                             .arg(shared_info.down_speed, 0, 'f', 2)
                             .arg(shared_info.up_speed, 0, 'f', 2)
                             .arg(shared_info.latency_ms, 0, 'f', 2));
 
+        // Update Protocol Stats
+        long long total = 0;
+        for (auto const& [p, count] : shared_info.proto_stats) total += count;
+        if (total > 0) {
+            auto getP = [&](string n) { return (shared_info.proto_stats[n] * 100.0) / total; };
+            statsLabel->setText(QString("Protocol Distribution: TCP: %1% | UDP: %2% | DNS: %3% | ICMP: %4%")
+                                .arg(getP("TCP"), 0, 'f', 1)
+                                .arg(getP("UDP"), 0, 'f', 1)
+                                .arg(getP("DNS"), 0, 'f', 1)
+                                .arg(getP("ICMP"), 0, 'f', 1));
+        }
+
+        // Update Table
         packetTable->setRowCount(0);
         for (const auto& p : shared_info.packets) {
             int row = packetTable->rowCount();
             packetTable->insertRow(row);
-            packetTable->setItem(row, 0, new QTableWidgetItem(p.src.c_str()));
-            packetTable->setItem(row, 1, new QTableWidgetItem(p.dst.c_str()));
-            packetTable->setItem(row, 2, new QTableWidgetItem(p.location.c_str()));
-            packetTable->setItem(row, 3, new QTableWidgetItem(p.size.c_str()));
+            
+            QTableWidgetItem *protoItem = new QTableWidgetItem(p.protocol.c_str());
+            QTableWidgetItem *srcItem = new QTableWidgetItem(p.src.c_str());
+            QTableWidgetItem *dstItem = new QTableWidgetItem(p.dst.c_str());
+            QTableWidgetItem *locItem = new QTableWidgetItem(p.location.c_str());
+            QTableWidgetItem *sizeItem = new QTableWidgetItem(p.size.c_str());
+
+            if (p.is_malicious) {
+                QColor dangerColor(255, 200, 200);
+                protoItem->setBackground(dangerColor);
+                srcItem->setBackground(dangerColor);
+                dstItem->setBackground(dangerColor);
+                dstItem->setText(dstItem->text() + " [⚠ BLACKLIST]");
+            }
+
+            packetTable->setItem(row, 0, protoItem);
+            packetTable->setItem(row, 1, srcItem);
+            packetTable->setItem(row, 2, dstItem);
+            packetTable->setItem(row, 3, locItem);
+            packetTable->setItem(row, 4, sizeItem);
         }
         packetTable->scrollToBottom();
     }
@@ -209,6 +281,8 @@ private slots:
     void startWorkers() {
         QThread *t1 = new QThread, *t2 = new QThread, *t3 = new QThread;
         NetworkWorker *w1 = new NetworkWorker, *w2 = new NetworkWorker, *w3 = new NetworkWorker;
+
+        w1->loadBlacklist(); // Load initial data
 
         w1->moveToThread(t1);
         connect(t1, &QThread::started, w1, &NetworkWorker::calculateSpeed);
