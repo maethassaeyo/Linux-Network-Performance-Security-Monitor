@@ -1,0 +1,24 @@
+Gemini บอกว่า
+สำหรับโปรเจกต์ "Linux Network Performance & Security Monitor" เพื่อยื่นพอร์ต สจล. ผมแนะนำให้คุณทำให้มันเป็นเครื่องมือแบบ All-in-one Network Dashboard ที่ทำงานบน Desktop (ไม่ใช่เว็บ) โดยเน้นไปที่การวิเคราะห์ข้อมูลดิบจาก Kernel ของ Linux ครับ
+
+เพื่อให้โปรเจกต์นี้ดู "เหนือ" กว่าโปรเจกต์เด็กมัธยมทั่วไป เราจะแบ่งฟีเจอร์ออกเป็น 3 เลเยอร์ ดังนี้ครับ:
+
+1. โครงสร้างฟีเจอร์ (Feature Breakdown)
+ก. Performance Layer (วัดความแรง)
+	Real-time Throughput: ดึงข้อมูลจาก /proc/net/dev เพื่อแสดงความเร็ว Upload/Download แยกตาม Interface (eth0, wlan0)
+
+	Packet Loss & Latency: สร้างระบบ Ping อัตโนมัติไปยัง DNS ต่างๆ (เช่น 8.8.8.8) เพื่อวัดความเสถียรของเน็ตในขณะนั้น
+
+	Process-Specific Usage: ใช้ psutil เพื่อดูว่า Software ตัวไหนในเครื่องที่กำลังเปิด Socket ค้างไว้และกิน Bandwidth มากที่สุด
+
+ข. Security Layer (เฝ้าระวัง)
+	Connection Tracking: แสดงรายการ IP ทั้งหมดที่เครื่องเรากำลังเชื่อมต่ออยู่ (Established Connections)
+
+	Geo-IP Mapping: นำ IP ปลายทางไปเช็กกับฐานข้อมูล (เช่น MaxMind หรือ Free API) เพื่อระบุประเทศปลายทาง
+
+	Blacklist Check: ตรวจสอบว่า IP ที่เราคุยด้วยติดอยู่ในบัญชีรายชื่อ "Malicious IP" หรือไม่ (ใช้ข้อมูลจาก Threat Intel ต่างๆ)
+
+ค. Analysis Layer (วิเคราะห์)
+	Protocol Distribution: สรุปว่าใน 1 นาทีที่ผ่านมา มีการใช้โปรโตคอลอะไรบ้าง (TCP, UDP, ICMP, DNS)
+
+
