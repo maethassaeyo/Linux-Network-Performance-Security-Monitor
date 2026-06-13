@@ -1,0 +1,20 @@
+# Binaries
+main
+test
+NetworkMonitorGUI
+NetWorkPerformance
+NetworkMonitorCLI
+
+# Qt generated files
+*.moc
+*.o
+*.a
+*.so
+
+# Data
+# data/GeoLite2-Country.mmdb # Usually you might want to ignore large databases, but here it's part of the project. I'll leave it in for now as it's small enough or necessary for the 'All-in-one' feel.
+
+# IDEs
+.vscode/
+.idea/
+build/

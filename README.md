@@ -41,15 +41,23 @@ The application is built with a **Multi-threaded Architecture** to ensure high p
 
 2. **Compile the Application:**
    ```bash
+   # Create build directory
+   mkdir -p build
+   
    # Generate Meta-Object code for Qt
-   /usr/lib64/qt5/bin/moc NetworkMonitorGUI.cpp -o NetworkMonitorGUI.moc
+   /usr/lib64/qt5/bin/moc src/NetworkMonitorGUI.cpp -o src/NetworkMonitorGUI.moc
 
    # Compile with G++
-   g++ NetworkMonitorGUI.cpp -o NetworkMonitorGUI \
+   g++ src/NetworkMonitorGUI.cpp -o NetworkMonitorGUI \
    -DQT_WIDGETS_LIB -I/usr/include/qt5/QtWidgets -I/usr/include/qt5 \
    -DQT_GUI_LIB -I/usr/include/qt5/QtGui -DQT_CORE_LIB -I/usr/include/qt5/QtCore \
    -lQt5Widgets -lQt5Gui -lQt5Core -lpcap -lmaxminddb -lpthread -fPIC
    ```
+
+## Project Structure
+- `src/`: Source code for GUI and CLI versions.
+- `data/`: Database files (GeoLite2).
+- `README.md`: Project documentation.
 
 ## Usage
 The application requires root privileges to access raw network sockets via `libpcap`.

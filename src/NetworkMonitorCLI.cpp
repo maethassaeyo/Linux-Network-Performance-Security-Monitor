@@ -40,7 +40,7 @@ string get_country(string ip){
 
     int gai_error, mmdb_error;
     MMDB_s mmdb;
-    mmdb_error = MMDB_open("GeoLite2-Country.mmdb", MMDB_MODE_MMAP, &mmdb);
+    mmdb_error = MMDB_open("data/GeoLite2-Country.mmdb", MMDB_MODE_MMAP, &mmdb);
     
     MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gai_error, &mmdb_error);
     if (result.found_entry) {
@@ -58,22 +58,16 @@ string get_country(string ip){
 
 
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char *packet) {
-    // โครงสร้าง: Ethernet Header (14 bytes) -> IP Header
+    // Ethernet Header (14 bytes) -> IP Header
     struct iphdr *ip_header = (struct iphdr *)(packet + 14);
     
-    // แปลง IP จากตัวเลขเป็น String ที่คนอ่านออก
+    // Convert IP from binary to readable string
     struct in_addr src_addr, dst_addr;
     src_addr.s_addr = ip_header->saddr;
     dst_addr.s_addr = ip_header->daddr;
     
     lock_guard<mutex> lock(shared_info.mtx);
-    //shared_info.last_scr_ip = inet_ntoa(src_addr);
-    //shared_info.last_dst_ip = inet_ntoa(dst_addr);
-    //shared_info.pk_len_ip = pkthdr->len;
     shared_info.ip_scan.push_back({inet_ntoa(src_addr) ,inet_ntoa(dst_addr),get_country(inet_ntoa(dst_addr)),to_string(pkthdr->len)});
-    /*cout << "From: " << inet_ntoa(src_addr) 
-         << " -> To: " << inet_ntoa(dst_addr) 
-         << " | Size: " << pkthdr->len << " bytes" << endl;**/
 }
 
 void calculate_speed_Net(){
@@ -90,9 +84,9 @@ void calculate_speed_Net(){
         long long current_recv_down = 0;
         long long current_recv_up = 0;
         string name = "";
-        // ตรวจสอบว่าเปิดไฟล์ได้หรือไม่
+        // Check if file opened successfully
         if (file.is_open()) {
-                // อ่านไฟล์ทีละบรรทัด
+            // Read file line by line
             while (getline(file, line)) {
             
                 if(line.find("wlp") != string::npos){
@@ -113,7 +107,6 @@ void calculate_speed_Net(){
                 }
 
             }  
-            // ปิดไฟล์
             file.close();
             
             if(!first_run){
@@ -122,7 +115,6 @@ void calculate_speed_Net(){
                 shared_info.up_speed = speed_Mbps(current_recv_up,prev_recv_up);
 
             }
-            //cout << "Downlond Speed : " << down_speed_Mbps << " Mbps\nUplode Speed : " << up_speed_Mbps << " Mbps" << endl;
             prev_recv_down = current_recv_down;
             prev_recv_up = current_recv_up;
             first_run = false;
@@ -174,7 +166,7 @@ void ping(){
                     lock_guard<mutex> lock(shared_info.mtx);
                     shared_info.latency_ms  = ms;;
                 }catch(...){
-                    cerr << "Not Enternet Connec" ;
+                    cerr << "No Internet Connection";
                 }
             }
             pclose(pipe);
@@ -207,7 +199,7 @@ int main() {
             for(const auto& pkt : shared_info.ip_scan) {
                 cout << left << setw(18) << pkt[0] << setw(18) << pkt[1] << setw(15) << pkt[2] << pkt[3] << endl;
             }
-            shared_info.ip_scan.clear(); //
+            shared_info.ip_scan.clear(); 
             cout << "========================================" << endl;
         }
         sleep(1);

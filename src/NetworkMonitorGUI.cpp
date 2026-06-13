@@ -57,7 +57,7 @@ string get_country(string ip) {
     if (geo_cache.count(ip)) return geo_cache[ip];
     int gai_error, mmdb_error;
     MMDB_s mmdb;
-    mmdb_error = MMDB_open("GeoLite2-Country.mmdb", MMDB_MODE_MMAP, &mmdb);
+    mmdb_error = MMDB_open("data/GeoLite2-Country.mmdb", MMDB_MODE_MMAP, &mmdb);
     if (mmdb_error != MMDB_SUCCESS) return "Unknown";
 
     MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gai_error, &mmdb_error);
