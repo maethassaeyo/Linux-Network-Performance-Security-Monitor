@@ -181,9 +181,21 @@ public slots:
     }
 
     void loadBlacklist() {
-        lock_guard<mutex> lock(shared_info.mtx);
-        shared_info.blacklist.insert("1.1.1.1");
-        shared_info.blacklist.insert("8.8.4.4");
+        ifstream file("data/blacklist.txt");
+        if (file.is_open()) {
+            lock_guard<mutex> lock(shared_info.mtx);
+            shared_info.blacklist.clear();
+            string ip;
+            while (getline(file, ip)) {
+                if (!ip.empty()) shared_info.blacklist.insert(ip);
+            }
+            file.close();
+        } else {
+            // Fallback to basic list if file is missing
+            lock_guard<mutex> lock(shared_info.mtx);
+            shared_info.blacklist.insert("1.1.1.1");
+            shared_info.blacklist.insert("8.8.4.4");
+        }
     }
 };
 

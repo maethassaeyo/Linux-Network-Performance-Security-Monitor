@@ -56,8 +56,18 @@ The application is built with a **Multi-threaded Architecture** to ensure high p
 
 ## Project Structure
 - `src/`: Source code for GUI and CLI versions.
-- `data/`: Database files (GeoLite2).
+- `data/`: Database files (GeoLite2, Blacklists).
+- `update_databases.sh`: Script to update GeoIP and security databases.
 - `README.md`: Project documentation.
+
+## Updating Databases
+To keep the Geo-IP and Security Blacklist up to date, run the included update script:
+
+```bash
+chmod +x update_databases.sh
+./update_databases.sh
+```
+This script downloads the latest weekly GeoLite2-Country database and a real-time malicious IP blocklist from Emerging Threats.
 
 ## Usage
 The application requires root privileges to access raw network sockets via `libpcap`.
